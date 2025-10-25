@@ -277,10 +277,6 @@ DASHBOARD_JSON
     }
 
     post {
-        always {
-            junit 'Back/test-results/test-results.xml'
-            archiveArtifacts artifacts: 'Back/coverage/coverage.xml', fingerprint: true
-        }
         success {
             sh '''
             echo "🎉 DEPLOYMENT SUCCESSFUL! 🎉"
