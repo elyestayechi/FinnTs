@@ -1,0 +1,87 @@
+.
+├── .DS_Store
+├── .env
+├── .vscode
+│   └── settings.json
+├── Backend
+│   ├── __pycache__
+│   │   ├── database.cpython-310.pyc
+│   │   ├── models.cpython-310.pyc
+│   │   └── schemas.cpython-310.pyc
+│   ├── database.py
+│   ├── models.py
+│   └── schemas.py
+├── Data
+│   ├── .DS_Store
+│   ├── KYC.LOV.csv
+│   ├── feedback_db.json
+│   ├── loan_analysis.db
+│   └── logs
+│       └── loan_processor.log
+├── Dockerfile
+├── Dockerfile.test
+├── Fonts
+├── PDF Loans
+├── __pycache__
+│   └── main.cpython-310.pyc
+├── analyse.py
+├── feedback_cli.py
+├── loan_analysis.db
+├── loans_vector.db
+│   ├── 53940b11-e4ca-48fd-9ba8-667ebc483f5f
+│   │   ├── data_level0.bin
+│   │   ├── header.bin
+│   │   ├── length.bin
+│   │   └── link_lists.bin
+│   ├── ae91671b-2310-4be3-bde2-8124774b09cb
+│   │   ├── data_level0.bin
+│   │   ├── header.bin
+│   │   ├── length.bin
+│   │   └── link_lists.bin
+│   └── chroma.sqlite3
+├── main.py
+├── migrate_data.py
+├── migrate_feedback_db.py
+├── project-structure.txt
+├── requirements.txt
+├── src
+│   ├── .DS_Store
+│   ├── __init__.py
+│   ├── __pycache__
+│   ├── api_client.py
+│   ├── config.py
+│   ├── data_loader.py
+│   ├── data_models.py
+│   ├── llm
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── analyzer.py
+│   │   ├── feedback.py
+│   │   ├── prompts.py
+│   │   └── vector_db.py
+│   ├── reporting
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   │   ├── __init__.cpython-310.pyc
+│   │   │   ├── pdf.cpython-310.pyc
+│   │   │   └── templates.cpython-310.pyc
+│   │   ├── pdf.py
+│   │   └── templates.py
+│   ├── risk_engine
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── base.py
+│   │   ├── business_rules.py
+│   │   └── scoring.py
+│   └── utils.py
+├── test-results
+└── tests
+    ├── __init__.py
+    ├── conftest.py
+    ├── test_integration
+    │   ├── __init__.py
+    │   └── test_api_endpoints.py
+    └── test_units
+        ├── __init__.py
+        ├── test_llm_analyzer.py
+        └── test_risk_engine.py

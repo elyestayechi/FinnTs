@@ -1,0 +1,164 @@
+.
+├── Back
+│   ├── Backend
+│   │   ├── database.py
+│   │   ├── models.py
+│   │   └── schemas.py
+│   ├── Data
+│   │   ├── KYC.LOV.csv
+│   │   ├── Loan1.json
+│   │   ├── Loan2.json
+│   │   ├── feedback_db.json
+│   │   ├── loan_analysis.db
+│   │   └── logs
+│   │       └── loan_processor.log
+│   ├── Dockerfile
+│   ├── Dockerfile.test
+│   ├── Fonts/
+│   ├── PDF Loans/
+│   ├── analyse.py
+│   ├── feedback_cli.py
+│   ├── loan_analysis.db
+│   ├── loans_vector.db
+│   │   ├── 53940b11-e4ca-48fd-9ba8-667ebc483f5f
+│   │   │   ├── data_level0.bin
+│   │   │   ├── header.bin
+│   │   │   ├── length.bin
+│   │   │   └── link_lists.bin
+│   │   ├── ae91671b-2310-4be3-bde2-8124774b09cb
+│   │   │   ├── data_level0.bin
+│   │   │   ├── header.bin
+│   │   │   ├── length.bin
+│   │   │   └── link_lists.bin
+│   │   └── chroma.sqlite3
+│   ├── main.py
+│   ├── migrate_data.py
+│   ├── migrate_feedback_db.py
+│   ├── migrate_feedback_to_vector.py
+│   ├── project-structure.txt
+│   ├── requirements.txt
+│   ├── src
+│   │   ├── __init__.py
+│   │   ├── api_client.py
+│   │   ├── config.py
+│   │   ├── data_loader.py
+│   │   ├── data_models.py
+│   │   ├── llm
+│   │   │   ├── __init__.py
+│   │   │   ├── analyzer.py
+│   │   │   ├── feedback.py
+│   │   │   ├── prompts.py
+│   │   │   └── vector_db.py
+│   │   ├── reporting
+│   │   │   ├── __init__.py
+│   │   │   ├── pdf.py
+│   │   │   └── templates.py
+│   │   ├── risk_engine
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py
+│   │   │   ├── business_rules.py
+│   │   │   └── scoring.py
+│   │   └── utils.py
+│   └── tests
+│       ├── __init__.py
+│       ├── conftest.py
+│       ├── test_integration
+│       │   ├── __init__.py
+│       │   └── test_api_endpoints.py
+│       └── test_units
+│           ├── __init__.py
+│           ├── test_llm_analyzer.py
+│           └── test_risk_engine.py
+├── DEPLOYMENT.md
+├── Front
+│   ├── Dockerfile
+│   ├── README.md
+│   ├── components.json
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── pnpm-lock.yaml
+│   ├── postcss.config.js
+│   ├── project_structure.txt
+│   ├── public
+│   │   ├── favicon.svg
+│   │   └── robots.txt
+│   ├── src
+│   │   ├── App.css
+│   │   ├── App.tsx
+│   │   ├── components
+│   │   │   ├── Analysis
+│   │   │   │   ├── AnalysisHistory.tsx
+│   │   │   │   ├── AnalysisModal.tsx
+│   │   │   │   └── RiskScoreDashboard.tsx
+│   │   │   ├── Dashboard
+│   │   │   │   ├── MetricsCards.tsx
+│   │   │   │   ├── ProcessingPanel.tsx
+│   │   │   │   └── RecentReports.tsx
+│   │   │   ├── Feedback
+│   │   │   │   └── FeedbackSystem.tsx
+│   │   │   ├── Layout
+│   │   │   │   ├── Sidebar.tsx
+│   │   │   │   └── TopNavigation.tsx
+│   │   │   ├── PDF
+│   │   │   │   └── PDFPreview.tsx
+│   │   │   ├── Rules
+│   │   │   │   └── RulesManager.tsx
+│   │   │   ├── Settings
+│   │   │   │   └── SettingsPanel.tsx
+│   │   │   ├── contexts
+│   │   │   │   └── ThemeContext.tsx
+│   │   │   └── ui/
+│   │   ├── hooks
+│   │   │   ├── use-mobile.tsx
+│   │   │   ├── use-toast.ts
+│   │   │   └── useAnalysisWebSocket.ts
+│   │   ├── index.css
+│   │   ├── lib
+│   │   │   ├── api.ts
+│   │   │   └── utils.ts
+│   │   ├── main.tsx
+│   │   ├── pages
+│   │   │   ├── Index.tsx
+│   │   │   └── NotFound.tsx
+│   │   ├── project-structure.txt
+│   │   └── vite-env.d.ts
+│   ├── tailwind.config.ts
+│   ├── template_config.json
+│   ├── tsconfig.json
+│   ├── tsconfig.node.json
+│   └── vite.config.ts
+├── Jenkinsfile
+├── ReadMe.md
+├── backup.sh
+├── create-monitoring-structure.sh
+├── deploy.sh
+├── docker-compose.local.yml
+├── docker-compose.yml
+├── jenkins
+│   ├── Dockerfile
+│   └── scripts
+│       ├── docker-compose-wrapper.sh
+│       └── docker-wrapper.sh
+├── monitoring
+│   ├── alertmanager
+│   │   ├── Dockerfile
+│   │   └── config.yml
+│   ├── grafana
+│   │   ├── Dockerfile
+│   │   └── provisioning
+│   │       ├── dashboards
+│   │       │   ├── dashboards.yml
+│   │       │   ├── finn-compact-dashboard.json
+│   │       │   └── finn-executive-dashboard.json
+│   │       └── datasources
+│   │           └── datasource.yml
+│   ├── project-structure.txt
+│   └── prometheus
+│       ├── Dockerfile
+│       ├── alerts.yml
+│       └── prometheus.yml
+├── package-lock.json
+├── package.json
+└── project_structure.txt
