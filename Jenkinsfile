@@ -128,6 +128,32 @@ DASHBOARD_JSON
     }
 }
 
+        stage('Cleanup Previous Containers') {
+            steps {
+                sh '''
+                echo "=== Cleaning up old containers (except Jenkins) ==="
+                
+                # Stop and remove all containers except Jenkins
+                RUNNING_CONTAINERS=$(docker ps -q --filter "name=jenkins" --format "{{.ID}}")
+                if [ -n "$RUNNING_CONTAINERS" ]; then
+                    echo "Keeping Jenkins container(s):"
+                    docker ps --filter "name=jenkins"
+                fi
+
+                # Stop and remove all other containers
+                docker ps -q | grep -v "$(docker ps -q --filter 'name=jenkins')" | xargs -r docker stop
+                docker ps -a -q | grep -v "$(docker ps -q --filter 'name=jenkins')" | xargs -r docker rm -f
+
+                # Remove unused networks and volumes (optional but clean)
+                docker network prune -f
+                docker volume prune -f
+
+                echo "✅ Old containers cleaned up (Jenkins untouched)"
+                '''
+            }
+        }
+
+
         stage('Deploy Application with Monitoring') {
             steps {
                 sh '''
