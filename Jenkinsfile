@@ -33,6 +33,7 @@ pipeline {
                 if [ -d "${LOCAL_DATA_PATH}/Back/Data" ]; then
                     cp -r "${LOCAL_DATA_PATH}/Back/Data/" "Back/Data/"
                     echo "✅ Data directory copied"
+                    ls -la "Back/Data/" || echo "Cannot list Data directory"
                 else
                     echo "⚠️ No Data directory found"
                 fi
@@ -41,16 +42,23 @@ pipeline {
                 if [ -f "${LOCAL_DATA_PATH}/Back/loan_analysis.db" ]; then
                     cp "${LOCAL_DATA_PATH}/Back/loan_analysis.db" "Back/"
                     echo "✅ Database file copied"
+                    ls -lh "Back/loan_analysis.db"
                 else
                     echo "⚠️ No database file found - will be created during migration"
                 fi
 
                 # Copy vector database if it exists
                 if [ -f "${LOCAL_DATA_PATH}/Back/loans_vector.db" ]; then
-                cp "${LOCAL_DATA_PATH}/Back/loans_vector.db" "Back/"
-                echo "✅ Vector database file copied"
+                    cp "${LOCAL_DATA_PATH}/Back/loans_vector.db" "Back/"
+                    echo "✅ Vector database file copied"
+                    ls -lh "Back/loans_vector.db"
                 else
-                echo "⚠️ No vector database file found"
+                    echo "⚠️ No vector database file found"
+                    # Also check for vector db directory structure
+                    if [ -d "${LOCAL_DATA_PATH}/Back/loans_vector.db" ]; then
+                        cp -r "${LOCAL_DATA_PATH}/Back/loans_vector.db/" "Back/loans_vector.db/"
+                        echo "✅ Vector database directory copied"
+                    fi
                 fi
 
                 # Ensure Grafana dashboard files exist
@@ -90,204 +98,227 @@ DASHBOARD_JSON
 DASHBOARD_JSON
                 fi
 
-                echo "=== Grafana dashboard files ==="
-                ls -la "monitoring/grafana/provisioning/dashboards/" || echo "Could not list dashboards"
+                echo "=== Workspace preparation complete ==="
+                echo "Data directory contents:"
+                ls -la "Back/Data/" || echo "Cannot list Data directory"
+                echo "Database files:"
+                ls -lh Back/*.db || echo "No database files found"
                 '''
             }
         }
 
         stage('Debug Workspace') {
             steps {
-                sh 'pwd'
-                sh 'ls -l'
-                sh 'ls -l monitoring || true'
+                sh '''
+                echo "=== Current workspace ==="
+                pwd
+                ls -l
+                echo "=== Backend structure ==="
+                ls -la Back/ || echo "Cannot list Back directory"
+                echo "=== Monitoring structure ==="
+                ls -l monitoring || true
+                '''
             }
         }
 
-        stage('Build Backend') {
+        stage('Build Images') {
             steps {
-                dir('Back') {
-                    sh '''
-                    echo "=== Building backend image ==="
-                    docker build -t finn-backend:${BUILD_ID} -f Dockerfile .
-                    echo "✅ Backend image built"
-                    '''
-                }
+                sh '''
+                echo "=== Building all images ==="
+                
+                # Build backend
+                docker build -t finn-loan-analysis-backend -f Back/Dockerfile ./Back
+                
+                # Build frontend
+                docker build -t finn-loan-analysis-frontend -f Front/Dockerfile ./Front
+                
+                echo "✅ All images built successfully"
+                '''
             }
         }
-
-        stage('Build Frontend') {
-            steps {
-                dir('Front') {
-                    sh 'docker build -t finn-frontend:${BUILD_ID} -f Dockerfile .'
-                }
-            }
-        }
-
-        stage('Build Monitoring Images') {
-    steps {
-        sh '''
-        echo "=== Building monitoring images ==="
-        docker build -t finn-prometheus:${BUILD_ID} ./monitoring/prometheus
-        docker build -t finn-alertmanager:${BUILD_ID} ./monitoring/alertmanager
-        docker build -t finn-grafana:${BUILD_ID} ./monitoring/grafana
-        echo "✅ Monitoring images built"
-        '''
-    }
-}
 
         stage('Cleanup Previous Containers') {
             steps {
                 sh '''
                 echo "=== Cleaning up old containers (except Jenkins) ==="
                 
-                # Stop and remove all containers except Jenkins
-                RUNNING_CONTAINERS=$(docker ps -q --filter "name=jenkins" --format "{{.ID}}")
-                if [ -n "$RUNNING_CONTAINERS" ]; then
+                # Get Jenkins container IDs
+                JENKINS_CONTAINERS=$(docker ps -q --filter "name=jenkins" 2>/dev/null || echo "")
+                
+                if [ -n "$JENKINS_CONTAINERS" ]; then
                     echo "Keeping Jenkins container(s):"
                     docker ps --filter "name=jenkins"
                 fi
 
-                # Stop and remove all other containers
-                docker ps -q | grep -v "$(docker ps -q --filter 'name=jenkins')" | xargs -r docker stop
-                docker ps -a -q | grep -v "$(docker ps -q --filter 'name=jenkins')" | xargs -r docker rm -f
+                # Stop all containers except Jenkins
+                for container in $(docker ps -q); do
+                    if ! echo "$JENKINS_CONTAINERS" | grep -q "$container"; then
+                        echo "Stopping container: $container"
+                        docker stop "$container" 2>/dev/null || true
+                    fi
+                done
 
-                # Remove unused networks and volumes (optional but clean)
+                # Remove all stopped containers except Jenkins
+                for container in $(docker ps -a -q); do
+                    if ! echo "$JENKINS_CONTAINERS" | grep -q "$container"; then
+                        docker rm -f "$container" 2>/dev/null || true
+                    fi
+                done
+
+                # Clean up unused networks
                 docker network prune -f
-                docker volume prune -f
 
-                echo "✅ Old containers cleaned up (Jenkins untouched)"
+                echo "✅ Cleanup complete (Jenkins preserved)"
                 '''
             }
         }
 
-
         stage('Deploy Application with Monitoring') {
             steps {
                 sh '''
-                echo "=== Deploying stack without Jenkins ==="
+                echo "=== Deploying stack using docker-compose.local.yml ==="
 
-                # Deploy the stack using docker-compose
-                docker compose -p ${COMPOSE_PROJECT_NAME} -f docker-compose.yml up -d \
+                # Deploy using the local compose file (excluding Jenkins)
+                docker compose -f docker-compose.local.yml up -d \
                   ollama backend frontend \
                   prometheus alertmanager grafana
 
-                echo "✅ App + Monitoring deployed (Jenkins excluded)"
+                echo "✅ Application and monitoring deployed successfully"
+                echo "=== Container status ==="
+                docker compose -f docker-compose.local.yml ps
                 '''
             }
         }
 
         stage('Health Check') {
-    steps {
-        sh '''
-        echo "=== Health Check with retries ==="
-        
-        # Wait longer for backend to be ready (migration + server startup)
-        echo "Waiting for backend to be ready..."
-        MAX_RETRIES=15
-        RETRY_DELAY=10
-        
-        for i in $(seq 1 $MAX_RETRIES); do
-            # Check if backend container is running and healthy
-            if docker compose -p ${COMPOSE_PROJECT_NAME} ps backend | grep -q "(healthy)"; then
-                echo "✅ Backend is healthy (Docker healthcheck passed)"
+            steps {
+                sh '''
+                echo "=== Health Check with retries ==="
                 
-                # Also test the actual health endpoint from within the network
-                if docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -f http://localhost:8000/health; then
-                    echo "✅ Backend health endpoint is responding"
+                # Wait for backend to be ready (migration + server startup)
+                echo "Waiting for backend to be ready..."
+                MAX_RETRIES=20
+                RETRY_DELAY=10
+                
+                for i in $(seq 1 $MAX_RETRIES); do
+                    echo "Attempt $i/$MAX_RETRIES..."
                     
-                    # Test data endpoints to verify migration worked
-                    echo "=== Testing data endpoints ==="
-                    echo "PDF reports count:"
-                    docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -s http://localhost:8000/api/pdfs | jq '. | length' || echo "N/A"
-                    echo "Loans count:"
-                    docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -s http://localhost:8000/api/loans | jq '. | length' || echo "N/A"
-                    break
+                    # Check if backend container is running and healthy
+                    if docker compose -f docker-compose.local.yml ps backend | grep -q "(healthy)"; then
+                        echo "✅ Backend container is healthy"
+                        
+                        # Test the health endpoint
+                        if docker compose -f docker-compose.local.yml exec -T backend curl -f http://localhost:8000/health 2>/dev/null; then
+                            echo "✅ Backend health endpoint is responding"
+                            
+                            # Verify data persistence - check if data exists
+                            echo "=== Verifying data persistence ==="
+                            
+                            echo "Checking PDF reports:"
+                            PDF_COUNT=$(docker compose -f docker-compose.local.yml exec -T backend curl -s http://localhost:8000/api/pdfs 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
+                            echo "PDF reports count: $PDF_COUNT"
+                            
+                            echo "Checking loans data:"
+                            LOANS_COUNT=$(docker compose -f docker-compose.local.yml exec -T backend curl -s http://localhost:8000/api/loans 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
+                            echo "Loans count: $LOANS_COUNT"
+                            
+                            echo "Checking KPIs endpoint:"
+                            docker compose -f docker-compose.local.yml exec -T backend curl -s http://localhost:8000/api/kpis 2>/dev/null | head -c 200 || echo "KPIs check failed"
+                            
+                            # Verify mounted files inside container
+                            echo "=== Verifying mounted files in container ==="
+                            docker compose -f docker-compose.local.yml exec -T backend ls -la /app/Data/ 2>/dev/null || echo "Cannot list Data directory"
+                            docker compose -f docker-compose.local.yml exec -T backend ls -lh /app/*.db 2>/dev/null || echo "Cannot list database files"
+                            
+                            break
+                        else
+                            echo "⚠️ Backend container healthy but health endpoint not responding (attempt $i/$MAX_RETRIES)"
+                        fi
+                    else
+                        echo "⏳ Backend not ready yet (attempt $i/$MAX_RETRIES)"
+                        if [ $i -eq $MAX_RETRIES ]; then
+                            echo "❌ Backend health check failed after $MAX_RETRIES attempts"
+                            echo "=== Backend logs ==="
+                            docker compose -f docker-compose.local.yml logs backend | tail -50
+                            echo "=== Container status ==="
+                            docker compose -f docker-compose.local.yml ps
+                            exit 1
+                        fi
+                        sleep $RETRY_DELAY
+                    fi
+                done
+
+                # Check monitoring services
+                echo "=== Checking monitoring services ==="
+                
+                if docker compose -f docker-compose.local.yml ps prometheus | grep -q "Up"; then
+                    echo "✅ Prometheus container is running"
                 else
-                    echo "⚠️ Backend container healthy but health endpoint not responding (attempt $i/$MAX_RETRIES)"
+                    echo "⚠️ Prometheus container not running"
                 fi
-            else
-                echo "⏳ Backend not ready yet (attempt $i/$MAX_RETRIES)"
-                if [ $i -eq $MAX_RETRIES ]; then
-                    echo "❌ Backend health check failed after $MAX_RETRIES attempts"
-                    # Show backend logs for debugging
-                    echo "=== Backend logs ==="
-                    docker compose -p ${COMPOSE_PROJECT_NAME} logs backend | tail -20
-                    # Show container status
-                    echo "=== Container status ==="
-                    docker compose -p ${COMPOSE_PROJECT_NAME} ps
+
+                if docker compose -f docker-compose.local.yml ps alertmanager | grep -q "Up"; then
+                    echo "✅ Alertmanager container is running"
+                else
+                    echo "⚠️ Alertmanager container not running"
                 fi
-                sleep $RETRY_DELAY
-            fi
-        done
 
-        # Check monitoring services using Docker health checks
-        echo "=== Checking monitoring services ==="
-        
-        if docker compose -p ${COMPOSE_PROJECT_NAME} ps prometheus | grep -q "Up"; then
-            echo "✅ Prometheus container is running"
-        else
-            echo "⚠️ Prometheus container not running"
-        fi
-
-        if docker compose -p ${COMPOSE_PROJECT_NAME} ps alertmanager | grep -q "Up"; then
-            echo "✅ Alertmanager container is running"
-        else
-            echo "⚠️ Alertmanager container not running"
-        fi
-
-        if docker compose -p ${COMPOSE_PROJECT_NAME} ps grafana | grep -q "Up"; then
-            echo "✅ Grafana container is running"
-            
-            # Wait a bit more for Grafana to fully initialize
-            sleep 15
-            
-            # Check if Grafana is responding internally
-            if docker compose -p ${COMPOSE_PROJECT_NAME} exec -T grafana curl -f http://localhost:3000/api/health; then
-                echo "✅ Grafana health endpoint is responding"
-            else
-                echo "⚠️ Grafana container running but health endpoint not responding"
-            fi
-        else
-            echo "⚠️ Grafana container not running"
-        fi
-        '''
-    }
-}
+                if docker compose -f docker-compose.local.yml ps grafana | grep -q "Up"; then
+                    echo "✅ Grafana container is running"
+                    
+                    # Wait for Grafana to initialize
+                    sleep 20
+                    
+                    # Check Grafana health
+                    if docker compose -f docker-compose.local.yml exec -T grafana curl -f http://localhost:3000/api/health 2>/dev/null; then
+                        echo "✅ Grafana health endpoint is responding"
+                    else
+                        echo "⚠️ Grafana container running but health endpoint not responding"
+                    fi
+                else
+                    echo "⚠️ Grafana container not running"
+                fi
+                '''
+            }
+        }
 
         stage('Verify Grafana Provisioning') {
-    steps {
-        sh '''
-        echo "=== Verifying Grafana provisioning ==="
-        sleep 20
-        
-        # Check if datasource was created (from within Grafana container)
-        echo "Grafana datasources:"
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec -T grafana curl -s http://localhost:3000/api/datasources -u admin:admin | jq '.[].name' || echo "Could not fetch datasources"
-        
-        # Check if dashboards were created
-        echo "Grafana dashboards:"
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec -T grafana curl -s http://localhost:3000/api/search -u admin:admin | jq '.[].title' || echo "Could not fetch dashboards"
-        
-        # Check Grafana provisioning directory
-        echo "=== Grafana container file structure ==="
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec grafana ls -la /etc/grafana/provisioning/ || echo "Cannot check Grafana files"
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec grafana ls -la /etc/grafana/provisioning/dashboards/ || echo "Cannot check dashboard files"
-        
-        # Also check the actual exposed ports on host (for user information)
-        echo "=== Host port check (for user reference) ==="
-        echo "Backend should be available at: http://localhost:8000"
-        echo "Grafana should be available at: http://localhost:3001"
-        echo "Prometheus should be available at: http://localhost:9090"
-        '''
-    }
-}
+            steps {
+                sh '''
+                echo "=== Verifying Grafana provisioning ==="
+                sleep 15
+                
+                # Check datasources
+                echo "Checking Grafana datasources:"
+                docker compose -f docker-compose.local.yml exec -T grafana curl -s http://localhost:3000/api/datasources -u admin:admin 2>/dev/null | jq '.[].name' || echo "Could not fetch datasources"
+                
+                # Check dashboards
+                echo "Checking Grafana dashboards:"
+                docker compose -f docker-compose.local.yml exec -T grafana curl -s http://localhost:3000/api/search -u admin:admin 2>/dev/null | jq '.[].title' || echo "Could not fetch dashboards"
+                
+                # Check provisioning directory structure
+                echo "=== Grafana provisioning file structure ==="
+                docker compose -f docker-compose.local.yml exec grafana ls -la /etc/grafana/provisioning/ 2>/dev/null || echo "Cannot check Grafana provisioning"
+                docker compose -f docker-compose.local.yml exec grafana ls -la /etc/grafana/provisioning/dashboards/ 2>/dev/null || echo "Cannot check dashboard files"
+                
+                echo "=== Service URLs (for reference) ==="
+                echo "Backend:      http://localhost:8000"
+                echo "Frontend:     http://localhost:3000"
+                echo "Grafana:      http://localhost:3001 (admin/admin)"
+                echo "Prometheus:   http://localhost:9090"
+                echo "Alertmanager: http://localhost:9093"
+                '''
+            }
+        }
     }
 
     post {
         success {
             sh '''
-            echo "🎉 DEPLOYMENT SUCCESSFUL! 🎉"
+            echo ""
+            echo "🎉 =========================================="
+            echo "🎉   DEPLOYMENT SUCCESSFUL!                "
+            echo "🎉 =========================================="
             echo ""
             echo "=== APPLICATION SERVICES ==="
             echo "Frontend:     http://localhost:3000"
@@ -301,18 +332,48 @@ DASHBOARD_JSON
             echo "Alertmanager: http://localhost:9093"
             echo ""
             echo "=== GRAFANA DASHBOARDS ==="
-            echo "1. Open Grafana: http://localhost:3001"
-            echo "2. Login with admin/admin"
-            echo "3. Go to Dashboards → Browse"
-            echo "4. Look for 'Finn Compact Dashboard' and 'Finn Executive Dashboard'"
+            echo "1. Open: http://localhost:3001"
+            echo "2. Login: admin/admin"
+            echo "3. Navigate: Dashboards → Browse"
+            echo "4. Available: Finn Compact Dashboard & Executive Dashboard"
             echo ""
-            echo "If dashboards don't appear immediately, wait 1-2 minutes for provisioning"
+            echo "Note: Dashboards may take 1-2 minutes to fully provision"
+            echo ""
+            echo "=== DATA VERIFICATION ==="
+            echo "All data from previous deployment should be preserved:"
+            echo "  - PDF reports"
+            echo "  - Loan analyses"
+            echo "  - KPIs and metrics"
+            echo "  - Vector database"
+            echo ""
+            echo "Using docker-compose.local.yml ensures consistent configuration!"
+            echo ""
             '''
         }
         failure {
             sh '''
-            echo "=== Cleaning up due to failure ==="
-            docker compose -p ${COMPOSE_PROJECT_NAME} down 2>/dev/null || true
+            echo ""
+            echo "❌ =========================================="
+            echo "❌   DEPLOYMENT FAILED                     "
+            echo "❌ =========================================="
+            echo ""
+            echo "Collecting diagnostic information..."
+            echo ""
+            echo "=== Container Status ==="
+            docker compose -f docker-compose.local.yml ps || true
+            echo ""
+            echo "=== Recent Backend Logs ==="
+            docker compose -f docker-compose.local.yml logs --tail=100 backend || true
+            echo ""
+            echo "Cleaning up failed deployment..."
+            docker compose -f docker-compose.local.yml down 2>/dev/null || true
+            '''
+        }
+        always {
+            sh '''
+            echo ""
+            echo "=== Final Container Status ==="
+            docker compose -f docker-compose.local.yml ps || true
             '''
         }
     }
