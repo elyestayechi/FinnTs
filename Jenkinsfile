@@ -47,10 +47,10 @@ pipeline {
 
                 # Copy vector database if it exists
                 if [ -f "${LOCAL_DATA_PATH}/Back/loans_vector.db" ]; then
-                cp "${LOCAL_DATA_PATH}/Back/loans_vector.db" "Back/"
-                echo "✅ Vector database file copied"
+                    cp "${LOCAL_DATA_PATH}/Back/loans_vector.db" "Back/"
+                    echo "✅ Vector database file copied"
                 else
-                echo "⚠️ No vector database file found"
+                    echo "⚠️ No vector database file found"
                 fi
 
                 # Ensure Grafana dashboard files exist
@@ -98,9 +98,18 @@ DASHBOARD_JSON
 
         stage('Debug Workspace') {
             steps {
-                sh 'pwd'
-                sh 'ls -l'
-                sh 'ls -l monitoring || true'
+                sh '''
+                echo "=== Debug: Data Verification ==="
+                pwd
+                echo "=== Back directory contents ==="
+                ls -la Back/
+                echo "=== Data files ==="
+                find Back/Data -type f 2>/dev/null | head -10 || echo "No data files"
+                echo "=== PDF files ==="
+                find "Back/PDF Loans" -name "*.pdf" 2>/dev/null | head -5 || echo "No PDF files"
+                echo "=== Database files ==="
+                ls -la Back/*.db 2>/dev/null || echo "No database files"
+                '''
             }
         }
 
@@ -125,16 +134,16 @@ DASHBOARD_JSON
         }
 
         stage('Build Monitoring Images') {
-    steps {
-        sh '''
-        echo "=== Building monitoring images ==="
-        docker build -t finn-prometheus:${BUILD_ID} ./monitoring/prometheus
-        docker build -t finn-alertmanager:${BUILD_ID} ./monitoring/alertmanager
-        docker build -t finn-grafana:${BUILD_ID} ./monitoring/grafana
-        echo "✅ Monitoring images built"
-        '''
-    }
-}
+            steps {
+                sh '''
+                echo "=== Building monitoring images ==="
+                docker build -t finn-prometheus:${BUILD_ID} ./monitoring/prometheus
+                docker build -t finn-alertmanager:${BUILD_ID} ./monitoring/alertmanager
+                docker build -t finn-grafana:${BUILD_ID} ./monitoring/grafana
+                echo "✅ Monitoring images built"
+                '''
+            }
+        }
 
         stage('Cleanup Previous Containers') {
             steps {
@@ -152,23 +161,21 @@ DASHBOARD_JSON
                 docker ps -q | grep -v "$(docker ps -q --filter 'name=jenkins')" | xargs -r docker stop
                 docker ps -a -q | grep -v "$(docker ps -q --filter 'name=jenkins')" | xargs -r docker rm -f
 
-                # Remove unused networks and volumes (optional but clean)
+                # Clean up networks (but keep volumes for data persistence)
                 docker network prune -f
-                docker volume prune -f
 
                 echo "✅ Old containers cleaned up (Jenkins untouched)"
                 '''
             }
         }
 
-
         stage('Deploy Application with Monitoring') {
             steps {
                 sh '''
                 echo "=== Deploying stack without Jenkins ==="
 
-                # Deploy using the local compose file (excluding Jenkins)
-                docker compose -f docker-compose.local.yml up -d \
+                # Use the working docker-compose.yml with BUILD_ID
+                docker compose -p ${COMPOSE_PROJECT_NAME} -f docker-compose.yml up -d \
                   ollama backend frontend \
                   prometheus alertmanager grafana
 
@@ -178,113 +185,144 @@ DASHBOARD_JSON
         }
 
         stage('Health Check') {
-    steps {
-        sh '''
-        echo "=== Health Check with retries ==="
-        
-        # Wait longer for backend to be ready (migration + server startup)
-        echo "Waiting for backend to be ready..."
-        MAX_RETRIES=15
-        RETRY_DELAY=10
-        
-        for i in $(seq 1 $MAX_RETRIES); do
-            # Check if backend container is running and healthy
-            if docker compose -p ${COMPOSE_PROJECT_NAME} ps backend | grep -q "(healthy)"; then
-                echo "✅ Backend is healthy (Docker healthcheck passed)"
+            steps {
+                sh '''
+                echo "=== Health Check with retries ==="
                 
-                # Also test the actual health endpoint from within the network
-                if docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -f http://localhost:8000/health; then
-                    echo "✅ Backend health endpoint is responding"
+                # Wait longer for backend to be ready (migration + server startup)
+                echo "Waiting for backend to be ready..."
+                MAX_RETRIES=20
+                RETRY_DELAY=10
+                BACKEND_HEALTHY=false
+                
+                for i in $(seq 1 $MAX_RETRIES); do
+                    # Check if backend container is running
+                    if docker compose -p ${COMPOSE_PROJECT_NAME} ps backend | grep -q "Up"; then
+                        echo "✅ Backend container is running"
+                        
+                        # Test the actual health endpoint
+                        if docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -f http://localhost:8000/health; then
+                            echo "✅ Backend health endpoint is responding"
+                            BACKEND_HEALTHY=true
+                            
+                            # Test data endpoints to verify migration worked
+                            echo "=== Testing data endpoints ==="
+                            echo "PDF reports count:"
+                            PDF_COUNT=$(docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -s http://localhost:8000/api/pdfs | jq -r '. | length' 2>/dev/null || echo "0")
+                            echo "Loans count:"
+                            LOAN_COUNT=$(docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -s http://localhost:8000/api/loans | jq -r '. | length' 2>/dev/null || echo "0")
+                            
+                            echo "📊 PDF reports: $PDF_COUNT"
+                            echo "📊 Loans data: $LOAN_COUNT"
+                            
+                            # Check if we have data
+                            if [ "$PDF_COUNT" -gt "0" ] || [ "$LOAN_COUNT" -gt "0" ]; then
+                                echo "✅ Data successfully loaded"
+                                break
+                            else
+                                echo "⚠️ No data found yet (attempt $i/$MAX_RETRIES)"
+                            fi
+                        else
+                            echo "⚠️ Backend running but health endpoint not responding (attempt $i/$MAX_RETRIES)"
+                        fi
+                    else
+                        echo "⏳ Backend not running yet (attempt $i/$MAX_RETRIES)"
+                    fi
                     
-                    # Test data endpoints to verify migration worked
-                    echo "=== Testing data endpoints ==="
-                    echo "PDF reports count:"
-                    docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -s http://localhost:8000/api/pdfs | jq '. | length' || echo "N/A"
-                    echo "Loans count:"
-                    docker compose -p ${COMPOSE_PROJECT_NAME} exec -T backend curl -s http://localhost:8000/api/loans | jq '. | length' || echo "N/A"
-                    break
+                    if [ $i -eq $MAX_RETRIES ]; then
+                        echo "❌ Backend health check failed after $MAX_RETRIES attempts"
+                        echo "=== Backend logs ==="
+                        docker compose -p ${COMPOSE_PROJECT_NAME} logs backend --tail=50
+                        echo "=== Container status ==="
+                        docker compose -p ${COMPOSE_PROJECT_NAME} ps
+                        exit 1
+                    fi
+                    sleep $RETRY_DELAY
+                done
+
+                # Check monitoring services
+                echo "=== Checking monitoring services ==="
+                
+                if docker compose -p ${COMPOSE_PROJECT_NAME} ps prometheus | grep -q "Up"; then
+                    echo "✅ Prometheus container is running"
                 else
-                    echo "⚠️ Backend container healthy but health endpoint not responding (attempt $i/$MAX_RETRIES)"
+                    echo "⚠️ Prometheus container not running"
+                    docker compose -p ${COMPOSE_PROJECT_NAME} logs prometheus --tail=20
                 fi
-            else
-                echo "⏳ Backend not ready yet (attempt $i/$MAX_RETRIES)"
-                if [ $i -eq $MAX_RETRIES ]; then
-                    echo "❌ Backend health check failed after $MAX_RETRIES attempts"
-                    # Show backend logs for debugging
-                    echo "=== Backend logs ==="
-                    docker compose -p ${COMPOSE_PROJECT_NAME} logs backend | tail -20
-                    # Show container status
-                    echo "=== Container status ==="
-                    docker compose -p ${COMPOSE_PROJECT_NAME} ps
+
+                if docker compose -p ${COMPOSE_PROJECT_NAME} ps alertmanager | grep -q "Up"; then
+                    echo "✅ Alertmanager container is running"
+                else
+                    echo "⚠️ Alertmanager container not running"
+                    docker compose -p ${COMPOSE_PROJECT_NAME} logs alertmanager --tail=20
                 fi
-                sleep $RETRY_DELAY
-            fi
-        done
 
-        # Check monitoring services using Docker health checks
-        echo "=== Checking monitoring services ==="
-        
-        if docker compose -p ${COMPOSE_PROJECT_NAME} ps prometheus | grep -q "Up"; then
-            echo "✅ Prometheus container is running"
-        else
-            echo "⚠️ Prometheus container not running"
-        fi
+                if docker compose -p ${COMPOSE_PROJECT_NAME} ps grafana | grep -q "Up"; then
+                    echo "✅ Grafana container is running"
+                    
+                    # Wait for Grafana to fully initialize
+                    sleep 20
+                    
+                    # Check if Grafana is responding
+                    if curl -s http://localhost:3001/api/health > /dev/null; then
+                        echo "✅ Grafana health endpoint is responding"
+                    else
+                        echo "⚠️ Grafana container running but health endpoint not responding"
+                    fi
+                else
+                    echo "⚠️ Grafana container not running"
+                    docker compose -p ${COMPOSE_PROJECT_NAME} logs grafana --tail=20
+                fi
+                '''
+            }
+        }
 
-        if docker compose -p ${COMPOSE_PROJECT_NAME} ps alertmanager | grep -q "Up"; then
-            echo "✅ Alertmanager container is running"
-        else
-            echo "⚠️ Alertmanager container not running"
-        fi
-
-        if docker compose -p ${COMPOSE_PROJECT_NAME} ps grafana | grep -q "Up"; then
-            echo "✅ Grafana container is running"
-            
-            # Wait a bit more for Grafana to fully initialize
-            sleep 15
-            
-            # Check if Grafana is responding internally
-            if docker compose -p ${COMPOSE_PROJECT_NAME} exec -T grafana curl -f http://localhost:3000/api/health; then
-                echo "✅ Grafana health endpoint is responding"
-            else
-                echo "⚠️ Grafana container running but health endpoint not responding"
-            fi
-        else
-            echo "⚠️ Grafana container not running"
-        fi
-        '''
-    }
-}
+        stage('Verify Data Persistence') {
+            steps {
+                sh '''
+                echo "=== Verifying data persistence ==="
+                
+                # Check backend data directories
+                echo "=== Backend data directories ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la /app/data/ | head -10 || echo "Cannot list /app/data"
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la "/app/PDF Loans/" | head -10 || echo "Cannot list PDF Loans"
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la /app/*.db 2>/dev/null | head -5 || echo "No database files"
+                
+                # Check if data is accessible via API
+                echo "=== Data API verification ==="
+                echo "Testing PDF endpoint..."
+                curl -s http://localhost:8000/api/pdfs | jq -r '. | length' || echo "PDF endpoint failed"
+                echo "Testing loans endpoint..."
+                curl -s http://localhost:8000/api/loans | jq -r '. | length' || echo "Loans endpoint failed"
+                '''
+            }
+        }
 
         stage('Verify Grafana Provisioning') {
-    steps {
-        sh '''
-        echo "=== Verifying Grafana provisioning ==="
-        sleep 20
-        
-        # Check if datasource was created (from within Grafana container)
-        echo "Grafana datasources:"
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec -T grafana curl -s http://localhost:3000/api/datasources -u admin:admin | jq '.[].name' || echo "Could not fetch datasources"
-        
-        # Check if dashboards were created
-        echo "Grafana dashboards:"
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec -T grafana curl -s http://localhost:3000/api/search -u admin:admin | jq '.[].title' || echo "Could not fetch dashboards"
-        
-        # Check Grafana provisioning directory
-        echo "=== Grafana container file structure ==="
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec grafana ls -la /etc/grafana/provisioning/ || echo "Cannot check Grafana files"
-        docker compose -p ${COMPOSE_PROJECT_NAME} exec grafana ls -la /etc/grafana/provisioning/dashboards/ || echo "Cannot check dashboard files"
-        
-        # Also check the actual exposed ports on host (for user information)
-        echo "=== Host port check (for user reference) ==="
-        echo "Backend should be available at: http://localhost:8000"
-        echo "Grafana should be available at: http://localhost:3001"
-        echo "Prometheus should be available at: http://localhost:9090"
-        '''
-    }
-}
+            steps {
+                sh '''
+                echo "=== Verifying Grafana provisioning ==="
+                sleep 30
+                
+                # Check if datasource was created
+                echo "Grafana datasources:"
+                curl -s http://localhost:3001/api/datasources -u admin:admin | jq -r '.[].name' 2>/dev/null || echo "Could not fetch datasources"
+                
+                # Check if dashboards were created
+                echo "Grafana dashboards:"
+                curl -s http://localhost:3001/api/search -u admin:admin | jq -r '.[].title' 2>/dev/null || echo "Could not fetch dashboards"
+                
+                echo "✅ Grafana provisioning verification complete"
+                '''
+            }
+        }
     }
 
     post {
+        always {
+            junit 'Back/test-results/test-results.xml'
+            archiveArtifacts artifacts: 'Back/coverage/coverage.xml', fingerprint: true
+        }
         success {
             sh '''
             echo "🎉 DEPLOYMENT SUCCESSFUL! 🎉"
@@ -311,7 +349,14 @@ DASHBOARD_JSON
         }
         failure {
             sh '''
-            echo "=== Cleaning up due to failure ==="
+            echo "=== Deployment failed - troubleshooting info ==="
+            echo "=== Backend logs ==="
+            docker compose -p ${COMPOSE_PROJECT_NAME} logs backend --tail=100 2>/dev/null || true
+            echo "=== Prometheus logs ==="
+            docker compose -p ${COMPOSE_PROJECT_NAME} logs prometheus --tail=50 2>/dev/null || true
+            echo "=== Grafana logs ==="
+            docker compose -p ${COMPOSE_PROJECT_NAME} logs grafana --tail=50 2>/dev/null || true
+            echo "=== Cleaning up failed deployment ==="
             docker compose -p ${COMPOSE_PROJECT_NAME} down 2>/dev/null || true
             '''
         }

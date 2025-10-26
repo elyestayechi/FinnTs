@@ -118,6 +118,7 @@ services:
       - jenkins_data:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
       - ./jenkins/scripts:/var/jenkins_scripts
+      - /Users/asmatayechi/Desktop/Finn/Back:/host-finn-data
     environment:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
     restart: unless-stopped
