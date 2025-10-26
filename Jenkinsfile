@@ -184,6 +184,53 @@ DASHBOARD_JSON
             }
         }
 
+        stage('Debug Data Migration') {
+            steps {
+                sh '''
+                echo "=== Debugging Data Migration ==="
+                
+                # Wait a bit for backend to start
+                sleep 10
+                
+                # Check what files were actually copied in workspace
+                echo "=== Files in Back/Data (workspace) ==="
+                find Back/Data -type f 2>/dev/null | head -10 || echo "No files in Back/Data"
+                
+                echo "=== Files in Back/PDF Loans (workspace) ==="  
+                find "Back/PDF Loans" -name "*.pdf" 2>/dev/null | head -5 || echo "No PDF files"
+                
+                echo "=== Database files (workspace) ==="
+                ls -la Back/*.db 2>/dev/null || echo "No database files"
+                
+                # Check backend container file structure
+                echo "=== Backend container files ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la /app/ 2>/dev/null | head -15 || echo "Cannot access /app"
+                echo "=== /app/data contents ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la /app/data/ 2>/dev/null | head -10 || echo "No /app/data directory"
+                echo "=== /app/PDF Loans contents ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la "/app/PDF Loans/" 2>/dev/null | head -10 || echo "No PDF Loans directory"
+                echo "=== Database files in container ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la /app/*.db 2>/dev/null | head -5 || echo "No database files in container"
+                
+                # Check migration logs
+                echo "=== Backend startup logs (migration) ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} logs backend --tail=30
+                
+                # Check available API endpoints
+                echo "=== Testing if backend is responsive ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend curl -f http://localhost:8000/health && echo "✅ Backend health check passed" || echo "❌ Backend health check failed"
+                
+                echo "=== Available API endpoints from docs ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend curl -s http://localhost:8000/docs 2>/dev/null | grep -o '"/api/[^"]*"' | sort | uniq | head -20 || echo "Cannot fetch API docs - trying OpenAPI JSON"
+                
+                # Alternative way to check endpoints
+                echo "=== Checking OpenAPI spec ==="
+                docker compose -p ${COMPOSE_PROJECT_NAME} exec backend curl -s http://localhost:8000/openapi.json 2>/dev/null | jq -r '.paths | keys[]' | grep "^/api" | head -20 || echo "Cannot fetch OpenAPI spec"
+                '''
+            }
+        }
+
+
         stage('Health Check') {
             steps {
                 sh '''
@@ -319,10 +366,6 @@ DASHBOARD_JSON
     }
 
     post {
-        always {
-            junit 'Back/test-results/test-results.xml'
-            archiveArtifacts artifacts: 'Back/coverage/coverage.xml', fingerprint: true
-        }
         success {
             sh '''
             echo "🎉 DEPLOYMENT SUCCESSFUL! 🎉"
