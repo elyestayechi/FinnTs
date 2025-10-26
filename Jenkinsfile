@@ -45,6 +45,14 @@ pipeline {
                     echo "⚠️ No database file found - will be created during migration"
                 fi
 
+                # Copy vector database if it exists
+                if [ -f "${LOCAL_DATA_PATH}/Back/loans_vector.db" ]; then
+                cp "${LOCAL_DATA_PATH}/Back/loans_vector.db" "Back/"
+                echo "✅ Vector database file copied"
+                else
+                echo "⚠️ No vector database file found"
+                fi
+
                 # Ensure Grafana dashboard files exist
                 echo "=== Ensuring Grafana dashboards exist ==="
                 if [ ! -f "monitoring/grafana/provisioning/dashboards/finn-compact-dashboard.json" ]; then

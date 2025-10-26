@@ -4192,3 +4192,19 @@ ValueError: API unavailable and no fallback data found
 2025-10-23 15:47:52,741 - __main__ - INFO - Risk assessment completed - Score: 46.0, Level: risque élevé
 2025-10-23 15:47:52,741 - __main__ - INFO - Applying business rules
 2025-10-23 15:47:52,741 - __main__ - INFO - Starting AI analysis
+2025-10-25 16:47:04,792 - __main__ - INFO - ==================================================
+2025-10-25 16:47:04,792 - __main__ - INFO - Starting new loan assessment session
+2025-10-25 16:47:04,792 - __main__ - INFO - Execution time: 2025-10-25T16:47:04.792821
+2025-10-25 16:47:04,792 - __main__ - INFO - ==================================================
+2025-10-25 16:47:04,792 - __main__ - INFO - Initializing system components
+2025-10-25 16:47:05,423 - src.llm.vector_db - INFO - Vector DB initialized at loans_vector.db
+2025-10-25 16:47:05,527 - src.llm.analyzer - INFO - Downloading embedding model: nomic-embed-text
+2025-10-25 16:47:06,480 - src.llm.analyzer - INFO - Downloading generation model: deepseek-r1:1.5b
+2025-10-25 16:47:07,086 - __main__ - INFO - All components initialized successfully
+2025-10-25 16:47:07,087 - __main__ - INFO - Fetching loan data (with fallback)
+2025-10-25 16:47:12,137 - src.api_client - ERROR - Loan data fetch failed: 
+2025-10-25 16:47:12,139 - src.data_loader - ERROR - Error loading loan data: 
+2025-10-25 16:47:12,147 - __main__ - INFO - Performing risk assessment
+2025-10-25 16:47:12,148 - __main__ - INFO - Risk assessment completed - Score: 24.5, Level: risque moyen
+2025-10-25 16:47:12,148 - __main__ - INFO - Applying business rules
+2025-10-25 16:47:12,148 - __main__ - INFO - Starting AI analysis

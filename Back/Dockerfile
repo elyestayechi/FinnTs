@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create data directories
-RUN mkdir -p /app/data /app/PDF\ Loans
+RUN mkdir -p /app/Data /app/PDF\ Loans
 
 # Expose port
 EXPOSE 8000
@@ -28,7 +28,7 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=5 \
 
 # Set Python path
 ENV PYTHONPATH=/app
-ENV DATA_DIR=/app/data
+ENV DATA_DIR=/app/Data
 
 # Simple startup command with proper data migration
 CMD ["sh", "-c", "python migrate_data.py && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2"]
