@@ -23,14 +23,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./Back/Data:/app/Data
-      - ./Back/PDF Loans:/app/PDF Loans
+      - ./Back/Data:/app/data                    # FIXED: /app/data instead of /app/Data
+      - ./Back/PDF Loans:/app/PDF\ Loans
       - ./Back/loan_analysis.db:/app/loan_analysis.db
       - ./Back/loans_vector.db:/app/loans_vector.db
     environment:
       - PYTHONPATH=/app
       - OLLAMA_HOST=http://ollama:11434
-      - DATA_DIR=/app/Data 
+      - DATA_DIR=/app/data                       # FIXED: Consistent with volume mount
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -38,13 +38,6 @@ services:
       timeout: 30s
       retries: 5
       start_period: 60s
-    command: >
-      sh -c "
-        echo 'Running data migration...' && 
-        python migrate_data.py || echo 'Migration completed' && 
-        echo 'Starting server...' && 
-        python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
-      "
 
   frontend:
     build:

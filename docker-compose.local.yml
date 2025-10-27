@@ -25,14 +25,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./Back/Data:/app/Data
-      - ./Back/PDF Loans:/app/PDF Loans
+      - ./Back/Data:/app/data                    
+      - ./Back/PDF Loans:/app/PDF\ Loans
       - ./Back/loans_vector.db:/app/loans_vector.db
       - ./Back/loan_analysis.db:/app/loan_analysis.db
     environment:
       - PYTHONPATH=/app
       - OLLAMA_HOST=http://ollama:11434
-      - PROMETHEUS_MULTIPROC_DIR=/tmp
+      - DATA_DIR=/app/data                       
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -40,9 +40,6 @@ services:
       timeout: 30s
       retries: 5
       start_period: 60s
-    command: >
-      sh -c "python migrate_data.py &&
-             python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2"
 
   # -------------------- Frontend --------------------
   frontend:
