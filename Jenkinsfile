@@ -170,19 +170,34 @@ DASHBOARD_JSON
         }
 
         stage('Deploy Application with Monitoring') {
-            steps {
-                sh '''
-                echo "=== Deploying stack without Jenkins ==="
+    steps {
+        sh '''
+        echo "=== Deploying stack with persistent data ==="
+        
+        # Verify data files are in workspace BEFORE deploying
+        echo "=== Pre-deployment data verification ==="
+        ls -la Back/Data/ | head -10 || echo "No Data directory"
+        ls -la "Back/PDF Loans/" | head -5 || echo "No PDF Loans"
+        ls -la Back/*.db || echo "No database files"
+        
+        # Deploy containers
+        docker compose -p ${COMPOSE_PROJECT_NAME} -f docker-compose.yml up -d \
+          ollama backend frontend \
+          prometheus alertmanager grafana
 
-                # Use the working docker-compose.yml with BUILD_ID
-                docker compose -p ${COMPOSE_PROJECT_NAME} -f docker-compose.yml up -d \
-                  ollama backend frontend \
-                  prometheus alertmanager grafana
-
-                echo "✅ App + Monitoring deployed (Jenkins excluded)"
-                '''
-            }
-        }
+        echo "✅ Deployment complete"
+        
+        # Give containers time to start
+        sleep 15
+        
+        # Verify data is accessible inside container
+        echo "=== Post-deployment verification ==="
+        docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la /app/Data/ | head -10 || echo "Cannot access Data in container"
+        docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la "/app/PDF Loans/" | head -5 || echo "Cannot access PDF Loans in container"
+        docker compose -p ${COMPOSE_PROJECT_NAME} exec backend ls -la /app/*.db || echo "No DB files in container"
+        '''
+    }
+}
 
         stage('Debug Data Migration') {
             steps {

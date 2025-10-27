@@ -23,14 +23,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./Back/Data:/app/data
+      - ./Back/Data:/app/Data
       - ./Back/PDF Loans:/app/PDF Loans
       - ./Back/loan_analysis.db:/app/loan_analysis.db
-      - ./Back/loans_vector.db:/app/loans_vector.db    
+      - ./Back/loans_vector.db:/app/loans_vector.db
     environment:
       - PYTHONPATH=/app
       - OLLAMA_HOST=http://ollama:11434
-      - DATA_DIR=/app/data 
+      - DATA_DIR=/app/Data 
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
