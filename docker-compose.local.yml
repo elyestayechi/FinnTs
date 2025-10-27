@@ -25,14 +25,17 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./Back/Data:/app/data                    
+      # FIXED: Use capital D to match your original structure
+      - ./Back/Data:/app/Data
       - ./Back/PDF Loans:/app/PDF\ Loans
+      # FIXED: Mount entire vector DB directory
       - ./Back/loans_vector.db:/app/loans_vector.db
       - ./Back/loan_analysis.db:/app/loan_analysis.db
     environment:
       - PYTHONPATH=/app
       - OLLAMA_HOST=http://ollama:11434
-      - DATA_DIR=/app/data                       
+      - DATA_DIR=/app/Data
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -40,6 +43,9 @@ services:
       timeout: 30s
       retries: 5
       start_period: 60s
+    command: >
+      sh -c "python migrate_data.py &&
+             python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2"
 
   # -------------------- Frontend --------------------
   frontend:
@@ -115,7 +121,6 @@ services:
       - jenkins_data:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
       - ./jenkins/scripts:/var/jenkins_scripts
-      - /Users/asmatayechi/Desktop/Finn/Back:/host-finn-data
     environment:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
     restart: unless-stopped
