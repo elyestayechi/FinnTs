@@ -4,9 +4,14 @@ from pathlib import Path
 from datetime import datetime
 import re
 import time
+import logging
 from sqlalchemy.orm import Session
 from Backend.database import get_db, engine, SessionLocal
 from Backend import models
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def extract_loan_id_from_pdf(filename):
     """Extract loan ID from PDF filename with multiple patterns"""
@@ -29,17 +34,24 @@ def migrate_pdf_reports():
     pdf_dir = Path("./PDF Loans")
     pdf_count = 0
     
+    if not pdf_dir.exists():
+        logger.info("PDF Loans directory does not exist - skipping PDF migration")
+        return
+    
     db = SessionLocal()
     
     try:
-        for pdf_file in pdf_dir.glob("*.pdf"):
+        pdf_files = list(pdf_dir.glob("*.pdf"))
+        logger.info(f"Found {len(pdf_files)} PDF files to migrate")
+        
+        for pdf_file in pdf_files:
             if not pdf_file.is_file():
                 continue
                 
             loan_id = extract_loan_id_from_pdf(pdf_file.name)
             
             if not loan_id:
-                print(f"Could not extract loan ID from: {pdf_file.name}")
+                logger.warning(f"Could not extract loan ID from: {pdf_file.name}")
                 continue
             
             # Check if PDF already exists in database
@@ -48,7 +60,7 @@ def migrate_pdf_reports():
             ).first()
             
             if existing_pdf:
-                print(f"PDF already exists in database: {pdf_file.name}")
+                logger.info(f"PDF already exists in database: {pdf_file.name}")
                 continue
             
             # Check if loan exists, if not create it
@@ -68,7 +80,7 @@ def migrate_pdf_reports():
                 db.add(loan)
                 db.commit()
                 db.refresh(loan)
-                print(f"Created new loan record: {loan_id}")
+                logger.info(f"Created new loan record: {loan_id}")
             
             # Create PDF report entry
             pdf_report = models.PDFReport(
@@ -84,14 +96,14 @@ def migrate_pdf_reports():
             
             if pdf_count % 10 == 0:  # Commit every 10 records
                 db.commit()
-                print(f"Migrated {pdf_count} PDFs so far...")
+                logger.info(f"Migrated {pdf_count} PDFs so far...")
         
         db.commit()
-        print(f"Successfully migrated {pdf_count} PDF reports")
+        logger.info(f"Successfully migrated {pdf_count} PDF reports")
         
     except Exception as e:
         db.rollback()
-        print(f"Error migrating PDF reports: {str(e)}")
+        logger.error(f"Error migrating PDF reports: {str(e)}")
         raise
     finally:
         db.close()
@@ -102,7 +114,7 @@ def migrate_feedback_data():
     feedback_count = 0
     
     if not feedback_file.exists():
-        print("No feedback database file found")
+        logger.info("No feedback database file found")
         return
     
     db = SessionLocal()
@@ -110,6 +122,8 @@ def migrate_feedback_data():
     try:
         with open(feedback_file, 'r', encoding='utf-8') as f:
             feedback_data = json.load(f)
+        
+        logger.info(f"Found {len(feedback_data.get('feedback_entries', []))} feedback entries to migrate")
         
         for entry in feedback_data.get('feedback_entries', []):
             feedback = entry.get('feedback', {})
@@ -124,7 +138,7 @@ def migrate_feedback_data():
             ).first()
             
             if existing_feedback:
-                print(f"Feedback already exists for loan: {loan_id}")
+                logger.info(f"Feedback already exists for loan: {loan_id}")
                 continue
             
             # Check if loan exists, if not create it
@@ -144,7 +158,7 @@ def migrate_feedback_data():
                 db.add(loan)
                 db.commit()
                 db.refresh(loan)
-                print(f"Created new loan record for feedback: {loan_id}")
+                logger.info(f"Created new loan record for feedback: {loan_id}")
             
             # Parse timestamp
             timestamp_str = feedback.get('timestamp')
@@ -172,14 +186,14 @@ def migrate_feedback_data():
             
             if feedback_count % 5 == 0:  # Commit every 5 records
                 db.commit()
-                print(f"Migrated {feedback_count} feedback entries so far...")
+                logger.info(f"Migrated {feedback_count} feedback entries so far...")
         
         db.commit()
-        print(f"Successfully migrated {feedback_count} feedback entries")
+        logger.info(f"Successfully migrated {feedback_count} feedback entries")
         
     except Exception as e:
         db.rollback()
-        print(f"Error migrating feedback data: {str(e)}")
+        logger.error(f"Error migrating feedback data: {str(e)}")
         raise
     finally:
         db.close()
@@ -192,6 +206,7 @@ def migrate_analyses_from_pdfs():
     try:
         # Get all PDF reports
         pdf_reports = db.query(models.PDFReport).all()
+        logger.info(f"Found {len(pdf_reports)} PDF reports to create analyses from")
         
         for pdf_report in pdf_reports:
             # Check if analysis already exists
@@ -200,7 +215,7 @@ def migrate_analyses_from_pdfs():
             ).first()
             
             if existing_analysis:
-                print(f"Analysis already exists for loan: {pdf_report.loan_id}")
+                logger.info(f"Analysis already exists for loan: {pdf_report.loan_id}")
                 continue
             
             # Try to extract analysis data from PDF
@@ -210,6 +225,7 @@ def migrate_analyses_from_pdfs():
                 
                 pdf_path = Path(pdf_report.file_path)
                 if not pdf_path.exists():
+                    logger.warning(f"PDF file not found: {pdf_path}")
                     continue
                 
                 with pdf_path.open('rb') as f:
@@ -245,37 +261,98 @@ def migrate_analyses_from_pdfs():
                 
                 # Commit after each analysis to avoid transaction issues
                 db.commit()
-                print(f"Created analysis record for loan: {pdf_report.loan_id}")
+                logger.info(f"Created analysis record for loan: {pdf_report.loan_id}")
                     
             except Exception as e:
-                print(f"Error processing PDF {pdf_report.file_name}: {str(e)}")
+                logger.error(f"Error processing PDF {pdf_report.file_name}: {str(e)}")
                 db.rollback()  # Rollback on error to continue with next PDF
                 continue
         
-        print(f"Successfully created {analysis_count} analysis records from PDFs")
+        logger.info(f"Successfully created {analysis_count} analysis records from PDFs")
         
     except Exception as e:
         db.rollback()
-        print(f"Error migrating analysis data: {str(e)}")
+        logger.error(f"Error migrating analysis data: {str(e)}")
         raise
+    finally:
+        db.close()
+
+def create_sample_data():
+    """Create sample data if no data exists"""
+    db = SessionLocal()
+    
+    try:
+        # Check if we have any data
+        loan_count = db.query(models.Loan).count()
+        analysis_count = db.query(models.Analysis).count()
+        pdf_count = db.query(models.PDFReport).count()
+        
+        if loan_count == 0 and analysis_count == 0 and pdf_count == 0:
+            logger.info("No data found - creating sample data")
+            
+            # Create a sample loan
+            sample_loan = models.Loan(
+                loan_id="SAMPLE_001",
+                customer_name="Sample Customer",
+                loan_amount=50000.0,
+                currency="TND",
+                status="completed"
+            )
+            db.add(sample_loan)
+            
+            # Create sample analysis
+            sample_analysis = models.Analysis(
+                analysis_id="sample_analysis_001",
+                loan_id="SAMPLE_001",
+                risk_score=45.5,
+                decision="review",
+                summary="Sample analysis for demonstration",
+                key_findings=json.dumps(["Sample finding 1", "Sample finding 2"]),
+                conditions=json.dumps(["Condition 1", "Condition 2"]),
+                processing_time=30.5,
+                confidence=85.0,
+                created_at=datetime.now()
+            )
+            db.add(sample_analysis)
+            
+            db.commit()
+            logger.info("Sample data created successfully")
+        else:
+            logger.info(f"Existing data found: {loan_count} loans, {analysis_count} analyses, {pdf_count} PDFs")
+            
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating sample data: {str(e)}")
     finally:
         db.close()
 
 def main():
     """Main migration function"""
-    print("Starting data migration...")
+    logger.info("Starting data migration...")
     
     # Create database tables if they don't exist
-    from Backend.database import Base
-    Base.metadata.create_all(bind=engine)
-    print("Database tables created/verified")
+    try:
+        from Backend.database import Base
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created/verified")
+    except Exception as e:
+        logger.error(f"Error creating database tables: {str(e)}")
+        return
     
     # Run migrations
-    migrate_pdf_reports()
-    migrate_feedback_data()
-    migrate_analyses_from_pdfs()
-    
-    print("Data migration completed successfully!")
+    try:
+        migrate_pdf_reports()
+        migrate_feedback_data()
+        migrate_analyses_from_pdfs()
+        
+        # Create sample data if no data exists
+        create_sample_data()
+        
+        logger.info("Data migration completed successfully!")
+        
+    except Exception as e:
+        logger.error(f"Data migration failed: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     main()

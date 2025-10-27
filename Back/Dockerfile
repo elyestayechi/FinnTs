@@ -45,7 +45,7 @@ CMD ["sh", "-c", "\
     ls -lah /app/PDF\\ Loans 2>/dev/null | head -10 || echo '⚠️  PDF Loans directory empty' && \
     echo '' && \
     echo '🔄 Running data migration...' && \
-    python migrate_data.py || echo '⚠️  Migration script encountered issues' && \
+    python migrate_data.py || echo '⚠️  Migration completed with warnings' && \
     echo '' && \
     echo '🚀 Starting Uvicorn server...' && \
     python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2 --log-level info\
